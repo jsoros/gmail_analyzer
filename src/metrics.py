@@ -1,7 +1,13 @@
 import time
+import sys
 from progress.spinner import Spinner
-from ascii_graph import Pyasciigraph
-from termgraph.termgraph import chart, calendar_heatmap
+try:
+    from ascii_graph import Pyasciigraph
+    from termgraph.termgraph import chart, calendar_heatmap
+except ImportError:
+    print("Error: Required visualization packages not found.")
+    print("Please run: pip install ascii-graph termgraph")
+    sys.exit(1)
 import agate
 import warnings
 import concurrent.futures
@@ -48,11 +54,6 @@ class Metrics:
 
         print(f"\n\n{helpers.h1_icn} Senders (top {self.resultsLimit})\n")
         
-        # Print a simple table if chart function fails
-        for i in range(len(data_keys)):
-            if i < len(data_count):
-                print(f"{data_keys[i]}: {data_count[i][0]:,}")
-        
         try:
             args = {
                 "stacked": False,
@@ -67,6 +68,10 @@ class Metrics:
             chart(colors=[94], data=data_count, args=args, labels=data_keys)
         except Exception as e:
             print(f"Note: Could not display chart. Using simple output instead.")
+            # Print a simple table if chart function fails
+            for i in range(len(data_keys)):
+                if i < len(data_count):
+                    print(f"{data_keys[i]}: {data_count[i][0]:,}")
 
     def _analyze_count(self, event):
         # Average emails per day
@@ -177,7 +182,6 @@ class Metrics:
 
             print(f"\n{helpers.h2_icn} Year {year} ({_sum:,} emails)\n")
             
-            # Print simple date data if visualization fails
             try:
                 calendar_heatmap(data=data_count, args=args, labels=data_keys)
             except Exception as e:
