@@ -1,6 +1,7 @@
 import collections
 import os.path
 import pickle
+import time
 from progress.counter import Counter
 from progress.bar import IncrementalBar
 
@@ -8,6 +9,7 @@ from src import helpers
 from src.service import Service
 
 _progressPadding = 29
+_CACHE_DIR = "cache"
 
 
 class Processor:
@@ -17,16 +19,24 @@ class Processor:
         self.user_id = "me"
         self.messagesQueue = collections.deque()
         self.failedMessagesQueue = collections.deque()
+        
+        # Create cache directory if it doesn't exist
+        if not os.path.exists(_CACHE_DIR):
+            os.makedirs(_CACHE_DIR)
 
     def get_messages(self):
         # Get all messages of user
         # Output format:
         # [{'id': '13c...7', 'threadId': '13c...7'}, ...]
-
-        # if os.path.exists("messages.pickle"):
-        #     with open("messages.pickle", "rb") as token:
-        #         messages = pickle.load(token)
-        #         return messages
+        
+        cache_file = os.path.join(_CACHE_DIR, "messages.pickle")
+        
+        # Check if cache exists and is not older than 24 hours
+        if os.path.exists(cache_file) and (time.time() - os.path.getmtime(cache_file) < 86400):
+            print(f"{helpers.loader_icn} Loading messages from cache")
+            with open(cache_file, "rb") as token:
+                messages = pickle.load(token)
+                return messages
 
         # includeSpamTrash
         # labelIds
@@ -56,6 +66,10 @@ class Processor:
             progress.next()
 
         progress.finish()
+        
+        # Cache the messages
+        with open(cache_file, "wb") as token:
+            pickle.dump(messages, token)
 
         return messages
 
@@ -96,10 +110,14 @@ class Processor:
         #   ]
         # }
 
-        # if os.path.exists("success.pickle"):
-        #     with open("success.pickle", "rb") as token:
-        #         self.messagesQueue = pickle.load(token)
-        #         return
+        cache_file = os.path.join(_CACHE_DIR, "metadata.pickle")
+        
+        # Check if cache exists and is not older than 24 hours
+        if os.path.exists(cache_file) and (time.time() - os.path.getmtime(cache_file) < 86400):
+            print(f"{helpers.loader_icn} Loading message metadata from cache")
+            with open(cache_file, "rb") as token:
+                self.messagesQueue = pickle.load(token)
+                return
 
         progress = IncrementalBar(
             f"{helpers.loader_icn} Fetching messages meta data ".ljust(
@@ -123,3 +141,7 @@ class Processor:
             progress.next(len(messages_batch))
 
         progress.finish()
+        
+        # Cache the metadata
+        with open(cache_file, "wb") as token:
+            pickle.dump(self.messagesQueue, token)
