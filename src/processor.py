@@ -108,7 +108,7 @@ class Processor:
             max=len(messages),
         )
 
-        for messages_batch in helpers.chunks(messages, 250):
+        for messages_batch in helpers.chunks(messages, 100):
             # for messages_batch in [messages[0:1000]]:
             batch = self.service.new_batch_http_request()
 
