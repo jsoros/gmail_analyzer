@@ -6,7 +6,7 @@ try:
     from termgraph.termgraph import chart, calendar_heatmap
 except ImportError:
     print("Error: Required visualization packages not found.")
-    print("Please run: pip install ascii-graph termgraph")
+    print("Please run: pipenv install ascii-graph termgraph")
     sys.exit(1)
 import agate
 import warnings
@@ -67,7 +67,7 @@ class Metrics:
             
             chart(colors=[94], data=data_count, args=args, labels=data_keys)
         except Exception as e:
-            print(f"Note: Could not display chart. Using simple output instead.")
+            print(f"Note: Could not display chart. Using simple output instead. Error: {str(e)}")
             # Print a simple table if chart function fails
             for i in range(len(data_keys)):
                 if i < len(data_count):
@@ -185,7 +185,7 @@ class Metrics:
             try:
                 calendar_heatmap(data=data_count, args=args, labels=data_keys)
             except Exception as e:
-                print(f"Note: Could not display calendar heatmap. Showing simple output instead.")
+                print(f"Note: Could not display calendar heatmap. Showing simple output instead. Error: {str(e)}")
                 # Show top 10 dates with most emails
                 sorted_dates = sorted(zip(data_keys, [c[0] for c in data_count]), key=lambda x: x[1], reverse=True)
                 for date, count in sorted_dates[:10]:
