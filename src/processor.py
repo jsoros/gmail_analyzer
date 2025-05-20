@@ -76,7 +76,7 @@ class Processor:
         self.messagesQueue.append(
             {
                 "id": response["id"],
-                "labels": response["labelIds"],
+                "labels": response.get("labelIds", []),
                 "fields": {"from": _from, "date": _date},
             }
         )
