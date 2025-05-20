@@ -1,5 +1,6 @@
 import time
 import sys
+from datetime import datetime
 from progress.spinner import Spinner
 try:
     from ascii_graph import Pyasciigraph
@@ -26,6 +27,7 @@ class Metrics:
         self.processor = Processor()
         self.user_id = args["user"]
         self.resultsLimit = args["top"]
+        self.inactive_days = args["inactive"]
         self.table = None
 
     def _load_table(self, event):
@@ -129,6 +131,81 @@ class Metrics:
         print(f"\n\n{helpers.h1_icn} Stats\n")
         print(termtables.to_string(metrics))
 
+    def _analyze_inactive_senders(self, event):
+        """Analyze senders who haven't sent emails in X days"""
+        if self.inactive_days <= 0:
+            event.set()
+            return
+            
+        # Get current date for comparison
+        current_date = datetime.now()
+        
+        # Process the data to get the last email date for each sender
+        sender_last_dates = {}
+        
+        # Filter out rows with no sender or date
+        filtered_table = self.table.where(
+            lambda row: row["fields/from"] is not None and row["fields/date"] is not None
+        )
+        
+        # Convert dates to datetime objects for comparison
+        date_table = filtered_table.compute([
+            (
+                "datetime",
+                agate.Formula(
+                    agate.DateTime(datetime_format="%Y-%m-%d %H:%M:%S"),
+                    lambda row: helpers.reduce_to_datetime(row["fields/date"]),
+                ),
+            )
+        ])
+        
+        # Group by sender and find the most recent email
+        for row in date_table.rows:
+            sender = row["fields/from"]
+            date_obj = helpers.convert_date(row["fields/date"])
+            
+            if sender not in sender_last_dates or date_obj > sender_last_dates[sender]["date"]:
+                sender_last_dates[sender] = {
+                    "date": date_obj,
+                    "date_str": row["fields/date"]
+                }
+        
+        # Find senders inactive for more than X days
+        inactive_senders = []
+        for sender, data in sender_last_dates.items():
+            days_since = (current_date - data["date"]).days
+            if days_since > self.inactive_days:
+                inactive_senders.append({
+                    "sender": sender,
+                    "last_email_date": data["date_str"],
+                    "days_since": days_since
+                })
+        
+        # Sort by days_since in descending order
+        inactive_senders.sort(key=lambda x: x["days_since"], reverse=True)
+        
+        # Limit to top results
+        inactive_senders = inactive_senders[:self.resultsLimit]
+        
+        event.set()
+        
+        if inactive_senders:
+            print(f"\n\n{helpers.h1_icn} Senders inactive for more than {self.inactive_days} days\n")
+            
+            # Prepare data for table display
+            table_data = []
+            for sender in inactive_senders:
+                table_data.append([
+                    sender["sender"],
+                    sender["last_email_date"],
+                    f"{sender['days_since']} days"
+                ])
+            
+            headers = ["Sender", "Last Email Date", "Days Since"]
+            print(termtables.to_string(table_data, header=headers))
+        else:
+            print(f"\n\n{helpers.h1_icn} No senders inactive for more than {self.inactive_days} days found")
+    
     def _analyze_date(self, event):
         table = self.table.where(lambda row: row["fields/date"] is not None).compute(
             [
@@ -248,6 +325,20 @@ class Metrics:
                 time.sleep(0.1)
 
             progress.finish()
+            
+            # Only run inactive senders analysis if the threshold is set
+            if self.inactive_days > 0:
+                progress = Spinner(f"{helpers.loader_icn} Analysing inactive senders ")
+                
+                event = Event()
+                
+                future = executor.submit(self._analyze_inactive_senders, event)
+                
+                while not event.isSet() and future.running():
+                    progress.next()
+                    time.sleep(0.1)
+                
+                progress.finish()
             
             # Print completion message
             print("\nAnalysis complete!")

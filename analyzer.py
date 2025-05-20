@@ -21,6 +21,9 @@ def init_args():
     parser.add_argument(
         "--version", action="store_true", help="Display version and exit"
     )
+    parser.add_argument(
+        "--inactive", type=int, default=0, help="Show senders inactive for more than X days"
+    )
 
     args = vars(parser.parse_args())
 
