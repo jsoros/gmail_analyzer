@@ -47,17 +47,26 @@ class Metrics:
         event.set()
 
         print(f"\n\n{helpers.h1_icn} Senders (top {self.resultsLimit})\n")
-        args = {
-            "stacked": False,
-            "width": 55,
-            "no_labels": False,
-            "format": "{:<,d}",
-            "suffix": "",
-            "vertical": False,
-            "different_scale": False,
-        }
-
-        chart(colors=[94], data=data_count, args=args, labels=data_keys)
+        
+        # Print a simple table if chart function fails
+        for i in range(len(data_keys)):
+            if i < len(data_count):
+                print(f"{data_keys[i]}: {data_count[i][0]:,}")
+        
+        try:
+            args = {
+                "stacked": False,
+                "width": 55,
+                "no_labels": False,
+                "format": "{:<,d}",
+                "suffix": "",
+                "vertical": False,
+                "different_scale": False,
+            }
+            
+            chart(colors=[94], data=data_count, args=args, labels=data_keys)
+        except Exception as e:
+            print(f"Note: Could not display chart. Using simple output instead.")
 
     def _analyze_count(self, event):
         # Average emails per day
@@ -167,7 +176,16 @@ class Metrics:
             args = {"color": False, "custom_tick": False, "start_dt": f"{year}-01-01"}
 
             print(f"\n{helpers.h2_icn} Year {year} ({_sum:,} emails)\n")
-            calendar_heatmap(data=data_count, args=args, labels=data_keys)
+            
+            # Print simple date data if visualization fails
+            try:
+                calendar_heatmap(data=data_count, args=args, labels=data_keys)
+            except Exception as e:
+                print(f"Note: Could not display calendar heatmap. Showing simple output instead.")
+                # Show top 10 dates with most emails
+                sorted_dates = sorted(zip(data_keys, [c[0] for c in data_count]), key=lambda x: x[1], reverse=True)
+                for date, count in sorted_dates[:10]:
+                    print(f"{date}: {count:,} emails")
 
     def analyse(self):
         """
@@ -226,6 +244,9 @@ class Metrics:
                 time.sleep(0.1)
 
             progress.finish()
+            
+            # Print completion message
+            print("\nAnalysis complete!")
 
     def start(self):
         messages = self.processor.get_messages()
