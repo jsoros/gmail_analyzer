@@ -14,19 +14,31 @@ def remove_dup_timezone(date_str):
 
 def convert_date(date_str):
     # Dates comes multiple formats, this function tries to guess it
+    from dateutil import parser
+    
+    if not date_str:
+        return datetime.now()
+        
     clean_date = remove_dup_timezone(date_str)
 
-    _val = None
-
     try:
-        _val = datetime.strptime(clean_date, "%d %b %Y %H:%M:%S %z")
-    except ValueError:
+        # Try using dateutil parser which handles many date formats
+        return parser.parse(clean_date)
+    except:
+        # Fall back to original method
+        _val = None
         try:
-            _val = datetime.strptime(clean_date, "%d %b %Y %H:%M:%S %Z")
+            _val = datetime.strptime(clean_date, "%d %b %Y %H:%M:%S %z")
         except ValueError:
-            _val = datetime.strptime(clean_date, "%d %b %Y %H:%M:%S")
-
-    return _val
+            try:
+                _val = datetime.strptime(clean_date, "%d %b %Y %H:%M:%S %Z")
+            except ValueError:
+                try:
+                    _val = datetime.strptime(clean_date, "%d %b %Y %H:%M:%S")
+                except ValueError:
+                    # If all parsing fails, return current date
+                    return datetime.now()
+        return _val
 
 
 def reduce_to_date(date_str):

@@ -1,7 +1,14 @@
 import time
+import sys
+from datetime import datetime
 from progress.spinner import Spinner
-from ascii_graph import Pyasciigraph
-from termgraph.termgraph import chart, calendar_heatmap
+try:
+    from ascii_graph import Pyasciigraph
+    from termgraph.termgraph import chart, calendar_heatmap
+except ImportError:
+    print("Error: Required visualization packages not found.")
+    print("Please run: pipenv install ascii-graph termgraph")
+    sys.exit(1)
 import agate
 import warnings
 import concurrent.futures
@@ -17,9 +24,17 @@ class Metrics:
         # Ignore warnings about SSL connections
         warnings.simplefilter("ignore", ResourceWarning)
 
-        self.processor = Processor()
+        self.processor = Processor(
+            query=args.get("query"),
+            max_retry_rounds=args.get("max_retry_rounds"),
+        )
         self.user_id = args["user"]
         self.resultsLimit = args["top"]
+        self.inactive_days = args["inactive"]
+        self.pull_data = args.get("pull_data", False)
+        self.refresh_data = args.get("refresh_data", False)
+        self.analyze_only = args.get("analyze_only", False)
+        self.export_csv = args.get("export_csv")
         self.table = None
 
     def _load_table(self, event):
@@ -47,17 +62,25 @@ class Metrics:
         event.set()
 
         print(f"\n\n{helpers.h1_icn} Senders (top {self.resultsLimit})\n")
-        args = {
-            "stacked": False,
-            "width": 55,
-            "no_labels": False,
-            "format": "{:<,d}",
-            "suffix": "",
-            "vertical": False,
-            "different_scale": False,
-        }
-
-        chart(colors=[94], data=data_count, args=args, labels=data_keys)
+        
+        try:
+            args = {
+                "stacked": False,
+                "width": 55,
+                "no_labels": False,
+                "format": "{:<,d}",
+                "suffix": "",
+                "vertical": False,
+                "different_scale": False,
+            }
+            
+            chart(colors=[94], data=data_count, args=args, labels=data_keys)
+        except Exception as e:
+            print(f"Note: Could not display chart. Using simple output instead. Error: {str(e)}")
+            # Print a simple table if chart function fails
+            for i in range(len(data_keys)):
+                if i < len(data_count):
+                    print(f"{data_keys[i]}: {data_count[i][0]:,}")
 
     def _analyze_count(self, event):
         # Average emails per day
@@ -115,6 +138,81 @@ class Metrics:
         print(f"\n\n{helpers.h1_icn} Stats\n")
         print(termtables.to_string(metrics))
 
+    def _analyze_inactive_senders(self, event):
+        """Analyze senders who haven't sent emails in X days"""
+        if self.inactive_days <= 0:
+            event.set()
+            return
+            
+        # Get current date for comparison
+        current_date = datetime.now()
+        
+        # Process the data to get the last email date for each sender
+        sender_last_dates = {}
+        
+        # Filter out rows with no sender or date
+        filtered_table = self.table.where(
+            lambda row: row["fields/from"] is not None and row["fields/date"] is not None
+        )
+        
+        # Convert dates to datetime objects for comparison
+        date_table = filtered_table.compute([
+            (
+                "datetime",
+                agate.Formula(
+                    agate.DateTime(datetime_format="%Y-%m-%d %H:%M:%S"),
+                    lambda row: helpers.reduce_to_datetime(row["fields/date"]),
+                ),
+            )
+        ])
+        
+        # Group by sender and find the most recent email
+        for row in date_table.rows:
+            sender = row["fields/from"]
+            date_obj = helpers.convert_date(row["fields/date"])
+            
+            if sender not in sender_last_dates or date_obj > sender_last_dates[sender]["date"]:
+                sender_last_dates[sender] = {
+                    "date": date_obj,
+                    "date_str": row["fields/date"]
+                }
+        
+        # Find senders inactive for more than X days
+        inactive_senders = []
+        for sender, data in sender_last_dates.items():
+            days_since = (current_date - data["date"]).days
+            if days_since > self.inactive_days:
+                inactive_senders.append({
+                    "sender": sender,
+                    "last_email_date": data["date_str"],
+                    "days_since": days_since
+                })
+        
+        # Sort by days_since in descending order
+        inactive_senders.sort(key=lambda x: x["days_since"], reverse=True)
+        
+        # Limit to top results
+        inactive_senders = inactive_senders[:self.resultsLimit]
+        
+        event.set()
+        
+        if inactive_senders:
+            print(f"\n\n{helpers.h1_icn} Senders inactive for more than {self.inactive_days} days\n")
+            
+            # Prepare data for table display
+            table_data = []
+            for sender in inactive_senders:
+                table_data.append([
+                    sender["sender"],
+                    sender["last_email_date"],
+                    f"{sender['days_since']} days"
+                ])
+            
+            headers = ["Sender", "Last Email Date", "Days Since"]
+            print(termtables.to_string(table_data, header=headers))
+        else:
+            print(f"\n\n{helpers.h1_icn} No senders inactive for more than {self.inactive_days} days found")
+    
     def _analyze_date(self, event):
         table = self.table.where(lambda row: row["fields/date"] is not None).compute(
             [
@@ -167,7 +265,15 @@ class Metrics:
             args = {"color": False, "custom_tick": False, "start_dt": f"{year}-01-01"}
 
             print(f"\n{helpers.h2_icn} Year {year} ({_sum:,} emails)\n")
-            calendar_heatmap(data=data_count, args=args, labels=data_keys)
+            
+            try:
+                calendar_heatmap(data=data_count, args=args, labels=data_keys)
+            except Exception as e:
+                print(f"Note: Could not display calendar heatmap. Showing simple output instead. Error: {str(e)}")
+                # Show top 10 dates with most emails
+                sorted_dates = sorted(zip(data_keys, [c[0] for c in data_count]), key=lambda x: x[1], reverse=True)
+                for date, count in sorted_dates[:10]:
+                    print(f"{date}: {count:,} emails")
 
     def analyse(self):
         """
@@ -226,10 +332,44 @@ class Metrics:
                 time.sleep(0.1)
 
             progress.finish()
+            
+            # Only run inactive senders analysis if the threshold is set
+            if self.inactive_days > 0:
+                progress = Spinner(f"{helpers.loader_icn} Analysing inactive senders ")
+                
+                event = Event()
+                
+                future = executor.submit(self._analyze_inactive_senders, event)
+                
+                while not event.isSet() and future.running():
+                    progress.next()
+                    time.sleep(0.1)
+                
+                progress.finish()
+            
+            # Print completion message
+            print("\nAnalysis complete!")
 
     def start(self):
-        messages = self.processor.get_messages()
+        if self.analyze_only:
+            if not self.processor.load_cached_metadata():
+                print("No cached metadata found. Run with --pull-data first.")
+                return
+            if self.export_csv:
+                self.processor.export_csv(self.export_csv)
+            self.analyse()
+            return
 
-        self.processor.get_metadata(messages)
+        force_refresh = self.refresh_data
+        messages = self.processor.get_messages(force_refresh=force_refresh)
+
+        self.processor.get_metadata(messages, force_refresh=force_refresh)
+
+        if self.export_csv:
+            self.processor.export_csv(self.export_csv)
+
+        if self.pull_data or self.refresh_data:
+            print("Data pull complete.")
+            return
 
         self.analyse()

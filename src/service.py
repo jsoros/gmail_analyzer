@@ -6,8 +6,8 @@ from google.auth.transport.requests import Request
 
 
 class Service:
-    def __init__(self):
-        self.scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+    def __init__(self, scopes=None):
+        self.scopes = scopes or ["https://www.googleapis.com/auth/gmail.readonly"]
 
     def instance(self):
         service = build("gmail", "v1", credentials=self._get_creds())
@@ -25,7 +25,11 @@ class Service:
                 creds = pickle.load(token)
 
         # If there are no (valid) credentials available, let the user log in.
-        if not creds or not creds.valid:
+        scopes_mismatch = False
+        if creds and getattr(creds, "scopes", None):
+            scopes_mismatch = not set(self.scopes).issubset(set(creds.scopes))
+
+        if not creds or not creds.valid or scopes_mismatch:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:

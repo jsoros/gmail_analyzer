@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import sys
 import colorama
@@ -21,6 +23,42 @@ def init_args():
     parser.add_argument(
         "--version", action="store_true", help="Display version and exit"
     )
+    parser.add_argument(
+        "--query",
+        type=str,
+        default=None,
+        help="Gmail search query (e.g., 'label:work after:2023/01/01')",
+    )
+    parser.add_argument(
+        "--inactive", type=int, default=0, help="Show senders inactive for more than X days"
+    )
+    parser.add_argument(
+        "--max-retry-rounds",
+        type=int,
+        default=5,
+        help="Max retry rounds for failed message fetches (0 for unlimited)",
+    )
+    parser.add_argument(
+        "--pull-data",
+        action="store_true",
+        help="Fetch and cache data, then exit",
+    )
+    parser.add_argument(
+        "--refresh-data",
+        action="store_true",
+        help="Force refresh cached data, then exit",
+    )
+    parser.add_argument(
+        "--analyze-only",
+        action="store_true",
+        help="Analyze using cached data only (no API calls)",
+    )
+    parser.add_argument(
+        "--export-csv",
+        type=str,
+        default=None,
+        help="Export message metadata to CSV at the given path",
+    )
 
     args = vars(parser.parse_args())
 
@@ -35,5 +73,14 @@ if __name__ == "__main__":
     if args["version"]:
         print("gmail analyzer v{}".format(VERSION))
         sys.exit()
+
+    mode_flags = [
+        args["pull_data"],
+        args["refresh_data"],
+        args["analyze_only"],
+    ]
+    if sum(1 for flag in mode_flags if flag) > 1:
+        print("Error: --pull-data, --refresh-data, and --analyze-only are mutually exclusive.")
+        sys.exit(1)
 
     Metrics(args).start()
