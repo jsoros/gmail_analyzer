@@ -24,10 +24,17 @@ class Metrics:
         # Ignore warnings about SSL connections
         warnings.simplefilter("ignore", ResourceWarning)
 
-        self.processor = Processor()
+        self.processor = Processor(
+            query=args.get("query"),
+            max_retry_rounds=args.get("max_retry_rounds"),
+        )
         self.user_id = args["user"]
         self.resultsLimit = args["top"]
         self.inactive_days = args["inactive"]
+        self.pull_data = args.get("pull_data", False)
+        self.refresh_data = args.get("refresh_data", False)
+        self.analyze_only = args.get("analyze_only", False)
+        self.export_csv = args.get("export_csv")
         self.table = None
 
     def _load_table(self, event):
@@ -344,8 +351,25 @@ class Metrics:
             print("\nAnalysis complete!")
 
     def start(self):
-        messages = self.processor.get_messages()
+        if self.analyze_only:
+            if not self.processor.load_cached_metadata():
+                print("No cached metadata found. Run with --pull-data first.")
+                return
+            if self.export_csv:
+                self.processor.export_csv(self.export_csv)
+            self.analyse()
+            return
 
-        self.processor.get_metadata(messages)
+        force_refresh = self.refresh_data
+        messages = self.processor.get_messages(force_refresh=force_refresh)
+
+        self.processor.get_metadata(messages, force_refresh=force_refresh)
+
+        if self.export_csv:
+            self.processor.export_csv(self.export_csv)
+
+        if self.pull_data or self.refresh_data:
+            print("Data pull complete.")
+            return
 
         self.analyse()
